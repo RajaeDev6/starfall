@@ -39,6 +39,26 @@ fi i from 1 tuh 6 {
     pon(art.explosion, picture("explosion" + i))
 }
 
+# The type and colours of The Forgotten Maze: Source Serif for titles,
+# Inter for everything you read at a glance, off-white on ink with mint for
+# the player, violet for rare things and a muted rose for danger.
+mek fonts = {
+    title: game.font("assets/fonts/SourceSerif4-SemiBold.ttf"),
+    italic: game.font("assets/fonts/SourceSerif4-Italic.ttf"),
+    label: game.font("assets/fonts/Inter-Medium.ttf"),
+    bold: game.font("assets/fonts/Inter-Bold.ttf")
+}
+
+mek C = {
+    ink: "#0b0d12",
+    text: "#e7e9ef",
+    dim: "#e7e9ef99",
+    faint: "#e7e9ef4d",
+    accent: "#7dd3c0",
+    alt: "#a597ff",
+    danger: "#e07a93"
+}
+
 mek sfx = {
     shoot: noise("shoot"),
     enemyShoot: noise("enemy-shoot"),
@@ -268,7 +288,7 @@ wuk updateEnemy(e, dt) {
     }
 }
 
-mek sparkColours = {drone: "#ff4d5e", dart: "#ffd23f", gunship: "#b46cff", boss: "#ff7a2f"}
+mek sparkColours = {drone: C.danger, dart: C.danger, gunship: C.alt, boss: C.danger}
 
 wuk killEnemy(e) {
     e.dead = yeh mon
@@ -279,8 +299,8 @@ wuk killEnemy(e) {
         fi i from 1 tuh 6 {
             explode(e.x + rand(-50, 50), e.y + rand(-40, 40), rand(1, 1.6))
         }
-        burst(e.x, e.y, "#ff7a2f", 80, 420)
-        burst(e.x, e.y, "white", 40, 250)
+        burst(e.x, e.y, C.danger, 80, 420)
+        burst(e.x, e.y, C.text, 40, 250)
         shake = 1.2
         game.play(sfx.bossExplode)
         pon(powerups, {x: e.x, y: e.y, kind: "life"})
@@ -309,7 +329,7 @@ wuk hurtPlayer() {
     bombo player.shield > 0 {
         player.shield = 0
         player.inv = 1
-        burst(player.x, player.y, "#4fc3ff", 30, 200)
+        burst(player.x, player.y, C.alt, 30, 200)
         game.play(sfx.hit)
         sen back
     }
@@ -317,7 +337,7 @@ wuk hurtPlayer() {
     player.inv = 2.5
     player.triple = 0
     explode(player.x, player.y, 1.2)
-    burst(player.x, player.y, "#7df9ff", 40, 300)
+    burst(player.x, player.y, C.accent, 40, 300)
     shake = 0.8
     game.play(sfx.hurt)
     bombo player.lives <= 0 {
@@ -365,13 +385,13 @@ wuk collectPowerup(p) {
     game.play(sfx.powerup)
     bombo p.kind == "triple" {
         player.triple = 10
-        popup(p.x, p.y, "TRIPLE SHOT")
+        popup(p.x, p.y, "Triple shot")
     } bomboclaat p.kind == "shield" {
         player.shield = 12
-        popup(p.x, p.y, "SHIELD")
+        popup(p.x, p.y, "Shield")
     } bloodclaat {
         big up player.lives
-        popup(p.x, p.y, "1UP")
+        popup(p.x, p.y, "Extra life")
     }
 }
 
@@ -468,7 +488,7 @@ wuk update(dt) {
                 s.dead = yeh mon
                 e.hp -= 1
                 e.flash = 0.08
-                burst(s.x, s.y, "#fff3b0", 4, 120)
+                burst(s.x, s.y, C.text, 4, 120)
                 bombo e.hp <= 0 {
                     killEnemy(e)
                 } bloodclaat {
@@ -588,39 +608,70 @@ wuk drawWorld() {
     }
 
     fi p inna popups {
-        game.text(p.words, p.x, p.y, 14, "white", "center")
+        game.text(p.words, p.x, p.y, 13, C.dim, "center", fonts.label)
     }
 }
 
+# Small capitals-style labels over a bigger number, as in the maze's journal.
+wuk stat(label, value, x, align) {
+    game.text(label, x, 14, 11, C.faint, align, fonts.label)
+    game.text(value, x, 30, 20, C.text, align, fonts.bold)
+}
+
 wuk drawHud() {
-    game.text("SCORE " + score, 14, 10, 18, "white")
-    game.text("BEST " + hiscore, W - 14, 10, 18, "#9fb3d9", "right")
+    stat("SCORE", wud(score), 18, "left")
+    stat("BEST", wud(hiscore), W - 18, "right")
+
     bombo player.lives > 0 {
         fi i from 1 tuh min(player.lives, 8) {
-            game.draw(art.ship, i * 26 - 8, H - 40, {scale: 0.5, smooth: yeh mon})
+            game.draw(art.ship, 18 + (i - 1) * 22, H - 34, {scale: 0.4, smooth: yeh mon})
         }
     }
     mek y = H - 34
     bombo player.triple > 0 {
-        game.text("TRIPLE " + ceil(player.triple), W - 14, y, 14, "#7dff8a", "right")
-        y -= 18
+        game.text("Triple shot  " + ceil(player.triple), W - 18, y, 13, C.accent, "right", fonts.label)
+        y -= 20
     }
     bombo player.shield > 0 {
-        game.text("SHIELD " + ceil(player.shield), W - 14, y, 14, "#4fc3ff", "right")
+        game.text("Shield  " + ceil(player.shield), W - 18, y, 13, C.alt, "right", fonts.label)
     }
+
     fi e inna enemies {
         bombo e.kind == "boss" {
-            game.rect(60, 40, W - 120, 8, "#3a1a10")
-            game.rect(60, 40, (W - 120) * e.hp / e.maxhp, 8, "#ff7a2f")
-            game.text("MOTHERSHIP", W / 2, 50, 12, "#ffb38a", "center")
+            game.text("The mothership", W / 2, 66, 14, C.dim, "center", fonts.italic)
+            game.rect(80, 90, W - 160, 2, C.faint)
+            game.rect(80, 90, (W - 160) * e.hp / e.maxhp, 2, C.danger)
         }
     }
+
     bombo banner > 0 {
-        mek words = "WAVE " + wave
+        # fade in and out over the banner's last and first half second
+        mek a = min(1, min(banner, 2.2 - banner) * 2)
+        game.text("Wave " + wave, W / 2, H / 2 - 50, 34, game.rgb(231, 233, 239, a * 255), "center", fonts.title)
         bombo wave % 5 == 0 {
-            words = "WAVE " + wave + "  -  MOTHERSHIP"
+            game.text("The mothership is coming", W / 2, H / 2, 16, game.rgb(224, 122, 147, a * 255), "center", fonts.italic)
         }
-        game.text(words, W / 2, H / 2 - 40, 30, "#ffd23f", "center")
+    }
+}
+
+# Dim the game behind an overlay.
+wuk veil(alpha) {
+    game.rect(0, 0, W, H, game.rgb(11, 13, 18, alpha))
+}
+
+wuk drawTitle() {
+    veil(140)
+    game.text("Starfall", W / 2, 210, 60, C.text, "center", fonts.title)
+    game.text("a space shooter written in Bombo", W / 2, 290, 16, C.dim, "center", fonts.italic)
+
+    # a slow pulse on the one thing to do here
+    mek a = 0.6 + sin(t * 3) * 0.4
+    game.text("Press space to start", W / 2, 400, 17, game.rgb(125, 211, 192, 90 + a * 165), "center", fonts.label)
+
+    game.text("Arrows or WASD to move", W / 2, 560, 13, C.faint, "center", fonts.label)
+    game.text("Space to fire  ·  P to pause", W / 2, 582, 13, C.faint, "center", fonts.label)
+    bombo hiscore > 0 {
+        game.text("Best  " + hiscore, W / 2, 640, 14, C.dim, "center", fonts.label)
     }
 }
 
@@ -629,39 +680,31 @@ wuk draw() {
     game.camera(0, 0)
 
     bombo mode == "title" {
-        mek bob = sin(t * 2) * 6
-        game.text("STARFALL", W / 2, 180 + bob, 64, "#ffd23f", "center")
-        game.text("a space shooter written in Bombo", W / 2, 260, 16, "#9fb3d9", "center")
-        mek y = 380 + sin(t * 3) * 8
-        game.draw(art.flames[floor(t * 15) % 2], W / 2, y + 52, {center: yeh mon, scale: 2})
-        game.draw(art.ship, W / 2, y, {center: yeh mon, scale: 2})
-        bombo floor(t * 2) % 2 == 0 {
-            game.text("PRESS SPACE TO START", W / 2, 480, 22, "white", "center")
-        }
-        game.text("ARROWS / WASD  move", W / 2, 560, 15, "#9fb3d9", "center")
-        game.text("SPACE  fire      P  pause", W / 2, 584, 15, "#9fb3d9", "center")
-        game.text("BEST " + hiscore, W / 2, 640, 18, "#ffd23f", "center")
+        drawTitle()
         sen back
     }
 
     drawHud()
 
     bombo mode == "pause" {
-        game.rect(0, 0, W, H, game.rgb(0, 0, 0, 150))
-        game.text("PAUSED", W / 2, H / 2 - 30, 42, "white", "center")
-        game.text("press P to keep going", W / 2, H / 2 + 30, 16, "#9fb3d9", "center")
+        veil(200)
+        game.text("Paused", W / 2, H / 2 - 40, 40, C.text, "center", fonts.title)
+        game.text("Press P to carry on", W / 2, H / 2 + 20, 15, C.dim, "center", fonts.label)
     }
 
     bombo mode == "over" {
-        game.rect(0, 0, W, H, game.rgb(0, 0, 0, 120))
-        game.text("GAME OVER", W / 2, 240, 52, "#ff4d5e", "center")
-        game.text("SCORE " + score, W / 2, 320, 26, "white", "center")
-        game.text("reached wave " + wave, W / 2, 360, 16, "#9fb3d9", "center")
+        veil(190)
+        game.text("Game over", W / 2, 220, 48, C.danger, "center", fonts.title)
+        game.text("SCORE", W / 2, 312, 11, C.faint, "center", fonts.label)
+        game.text(wud(score), W / 2, 330, 34, C.text, "center", fonts.bold)
+        mek note = "You reached wave " + wave
         bombo newBest {
-            game.text("NEW BEST!", W / 2, 400, 22, "#ffd23f", "center")
+            note = "A new best, on wave " + wave
         }
+        game.text(note, W / 2, 386, 16, C.dim, "center", fonts.italic)
         bombo overTimer > 1 {
-            game.text("SPACE to play again   ESC for menu", W / 2, 480, 16, "white", "center")
+            game.text("Space to play again", W / 2, 470, 15, C.accent, "center", fonts.label)
+            game.text("Esc for the menu", W / 2, 494, 13, C.faint, "center", fonts.label)
         }
     }
 }
