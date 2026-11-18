@@ -1,0 +1,669 @@
+# Starfall - a space shooter written in Bombo.
+# Run it with:  bombo game.bombo
+
+tek "game"
+
+game.window(480, 720, "Starfall")
+
+mek W = game.width()
+mek H = game.height()
+
+# ---------- assets ----------
+
+wuk picture(name) {
+    sen back game.image("assets/images/" + name + ".png")
+}
+
+wuk noise(name) {
+    sen back game.sound("assets/sounds/" + name + ".wav")
+}
+
+mek art = {
+    ship: picture("ship"),
+    flames: [picture("flame1"), picture("flame2")],
+    bullet: picture("bullet"),
+    enemyBullet: picture("enemy-bullet"),
+    drone: picture("drone"),
+    dart: picture("dart"),
+    gunship: picture("gunship"),
+    boss: picture("mothership"),
+    shield: picture("shield"),
+    spark: picture("spark"),
+    background: picture("background"),
+    starsFar: picture("stars-far"),
+    starsNear: picture("stars-near"),
+    power: {triple: picture("power-triple"), shield: picture("power-shield"), life: picture("power-life")},
+    explosion: []
+}
+fi i from 1 tuh 6 {
+    pon(art.explosion, picture("explosion" + i))
+}
+
+mek sfx = {
+    shoot: noise("shoot"),
+    enemyShoot: noise("enemy-shoot"),
+    hit: noise("hit"),
+    explode: noise("explode"),
+    bossExplode: noise("boss-explode"),
+    hurt: noise("hurt"),
+    powerup: noise("powerup"),
+    start: noise("start"),
+    wave: noise("wave"),
+    over: noise("game-over")
+}
+
+# ---------- game state ----------
+
+mek mode = "title"      # title, play, pause, over
+mek t = 0               # seconds since the game opened
+mek scroll = 0          # how far the background has moved
+mek score = 0
+mek hiscore = game.load("hiscore") or 0
+mek newBest = nah mon
+mek wave = 0
+mek banner = 0          # how long the "WAVE n" banner stays up
+mek shake = 0           # screen shake strength
+mek overTimer = 0
+mek spawnQueue = []
+mek spawnTimer = 0
+
+mek player = {}
+mek shots = []
+mek enemyShots = []
+mek enemies = []
+mek sparks = []
+mek blasts = []
+mek powerups = []
+mek popups = []
+
+# ---------- helpers ----------
+
+wuk rand(lo, hi) {
+    sen back lo + luck() * (hi - lo)
+}
+
+wuk clamp(x, lo, hi) {
+    sen back max(lo, min(hi, x))
+}
+
+wuk near(ax, ay, bx, by, r) {
+    mek dx = ax - bx
+    mek dy = ay - by
+    sen back dx * dx + dy * dy < r * r
+}
+
+# Keep only the things that aren't marked dead.
+wuk alive(list) {
+    mek out = []
+    fi x inna list {
+        bombo nuh x.dead {
+            pon(out, x)
+        }
+    }
+    sen back out
+}
+
+# Draw a picture with its middle at x, y.
+wuk put(image, x, y) {
+    game.draw(image, x, y, {center: yeh mon})
+}
+
+wuk burst(x, y, colour, count, speed) {
+    fi i from 1 tuh count {
+        mek a = rand(0, pi * 2)
+        mek s = rand(speed * 0.2, speed)
+        mek life = rand(0.3, 0.8)
+        pon(sparks, {x: x, y: y, vx: cos(a) * s, vy: sin(a) * s, life: life, max: life, colour: colour})
+    }
+}
+
+wuk explode(x, y, size) {
+    pon(blasts, {x: x, y: y, t: 0, size: size})
+}
+
+wuk popup(x, y, words) {
+    pon(popups, {x: x, y: y, words: words, life: 0.9})
+}
+
+wuk aimShot(x, y, speed) {
+    mek a = atan2(player.y - y, player.x - x)
+    pon(enemyShots, {x: x, y: y, vx: cos(a) * speed, vy: sin(a) * speed})
+}
+
+# ---------- starting a game and waves ----------
+
+wuk newGame() {
+    player = {x: W / 2, y: H - 90, cool: 0, lives: 3, inv: 2, triple: 0, shield: 0}
+    shots = []
+    enemyShots = []
+    enemies = []
+    powerups = []
+    popups = []
+    score = 0
+    wave = 0
+    newBest = nah mon
+    mode = "play"
+    game.play(sfx.start)
+    nextWave()
+}
+
+wuk nextWave() {
+    big up wave
+    banner = 2.2
+    game.play(sfx.wave)
+    spawnQueue = []
+    bombo wave % 5 == 0 {
+        pon(spawnQueue, "boss")
+        fi i from 1 tuh 3 {
+            pon(spawnQueue, "drone")
+        }
+    } bloodclaat {
+        fi i from 1 tuh 5 + wave * 2 {
+            mek roll = luck(1, 100)
+            mek kind = "drone"
+            bombo wave >= 2 an roll <= 15 + wave * 4 {
+                kind = "dart"
+            }
+            bombo wave >= 3 an roll > 92 - wave * 2 {
+                kind = "gunship"
+            }
+            pon(spawnQueue, kind)
+        }
+    }
+    spawnTimer = 2
+}
+
+wuk spawn(kind) {
+    mek fast = 1 + wave * 0.06
+    mek e = {kind: kind, x: rand(40, W - 40), y: -30, vx: 0, vy: 0, t: 0, hp: 1, fire: rand(1, 2.5), flash: 0, points: 100}
+    bombo kind == "drone" {
+        e.image = art.drone
+        e.vy = rand(70, 110) * fast
+        e.home = e.x
+        e.wiggle = rand(30, 70)
+    } bomboclaat kind == "dart" {
+        e.image = art.dart
+        e.vy = rand(150, 210) * fast
+        e.vx = rand(110, 190)
+        bombo luck(0, 1) == 0 {
+            e.vx = -e.vx
+        }
+        e.points = 150
+    } bomboclaat kind == "gunship" {
+        e.image = art.gunship
+        e.vy = 60
+        e.hp = 5
+        e.points = 400
+        e.stop = rand(90, 260)
+    } bomboclaat kind == "boss" {
+        e.image = art.boss
+        e.x = W / 2
+        e.y = -80
+        e.vy = 50
+        e.hp = 50 + wave * 10
+        e.maxhp = e.hp
+        e.points = 5000
+        e.fire = 2.5
+    }
+    e.r = e.image.width * 0.4
+    pon(enemies, e)
+}
+
+# ---------- enemies ----------
+
+wuk updateEnemy(e, dt) {
+    e.t += dt
+    e.flash = max(0, e.flash - dt)
+    mek k = e.kind
+
+    bombo k == "drone" {
+        e.y += e.vy * dt
+        e.x = e.home + sin(e.t * 2.5) * e.wiggle
+    } bomboclaat k == "dart" {
+        e.x += e.vx * dt
+        e.y += e.vy * dt
+        bombo e.x < 15 or e.x > W - 15 {
+            e.vx = -e.vx
+            e.x = clamp(e.x, 15, W - 15)
+        }
+    } bomboclaat k == "gunship" {
+        bombo e.t > 14 {
+            e.stop = H + 100
+        }
+        bombo e.y < e.stop {
+            e.y += e.vy * dt
+        }
+        e.x = clamp(e.x + sin(e.t * 0.8) * 50 * dt, 40, W - 40)
+        e.fire -= dt
+        bombo e.fire <= 0 an e.y > 20 an mode == "play" {
+            e.fire = rand(1.1, 2)
+            aimShot(e.x, e.y + 26, 210 + wave * 5)
+            game.play(sfx.enemyShoot)
+        }
+    } bomboclaat k == "boss" {
+        bombo e.y < 140 {
+            e.y += e.vy * dt
+        }
+        e.x = W / 2 + sin(e.t * 0.6) * (W / 2 - 80)
+        e.fire -= dt
+        bombo e.fire <= 0 an mode == "play" {
+            mek angry = e.hp < e.maxhp / 2
+            e.fire = 1.7
+            mek n = 10
+            bombo angry {
+                e.fire = 1.1
+                n = 16
+            }
+            fi i from 0 tuh n - 1 {
+                mek a = i / n * pi * 2 + e.t
+                pon(enemyShots, {x: e.x, y: e.y, vx: cos(a) * 140, vy: sin(a) * 140})
+            }
+            aimShot(e.x, e.y + 40, 260)
+            game.play(sfx.enemyShoot)
+        }
+    }
+
+    bombo e.y > H + 60 {
+        e.dead = yeh mon
+    }
+}
+
+mek sparkColours = {drone: "#ff4d5e", dart: "#ffd23f", gunship: "#b46cff", boss: "#ff7a2f"}
+
+wuk killEnemy(e) {
+    e.dead = yeh mon
+    score += e.points
+    popup(e.x, e.y, wud(e.points))
+    bombo e.kind == "boss" {
+        explode(e.x, e.y, 3)
+        fi i from 1 tuh 6 {
+            explode(e.x + rand(-50, 50), e.y + rand(-40, 40), rand(1, 1.6))
+        }
+        burst(e.x, e.y, "#ff7a2f", 80, 420)
+        burst(e.x, e.y, "white", 40, 250)
+        shake = 1.2
+        game.play(sfx.bossExplode)
+        pon(powerups, {x: e.x, y: e.y, kind: "life"})
+    } bloodclaat {
+        explode(e.x, e.y, e.image.width / 60)
+        burst(e.x, e.y, sparkColours[e.kind], 14, 220)
+        shake = max(shake, 0.25)
+        game.play(sfx.explode)
+        mek chance = 7
+        bombo e.kind == "gunship" {
+            chance = 35
+        }
+        bombo luck(1, 100) <= chance {
+            mek kinds = ["triple", "triple", "shield", "shield", "life"]
+            pon(powerups, {x: e.x, y: e.y, kind: kinds[luck(0, 4)]})
+        }
+    }
+}
+
+# ---------- the player ----------
+
+wuk hurtPlayer() {
+    bombo player.inv > 0 {
+        sen back
+    }
+    bombo player.shield > 0 {
+        player.shield = 0
+        player.inv = 1
+        burst(player.x, player.y, "#4fc3ff", 30, 200)
+        game.play(sfx.hit)
+        sen back
+    }
+    bun player.lives
+    player.inv = 2.5
+    player.triple = 0
+    explode(player.x, player.y, 1.2)
+    burst(player.x, player.y, "#7df9ff", 40, 300)
+    shake = 0.8
+    game.play(sfx.hurt)
+    bombo player.lives <= 0 {
+        mode = "over"
+        overTimer = 0
+        enemyShots = []
+        bombo score > hiscore {
+            hiscore = score
+            newBest = yeh mon
+            game.save("hiscore", hiscore)
+        }
+        game.play(sfx.over)
+    }
+}
+
+wuk updatePlayer(dt) {
+    mek speed = 300
+    mek dx = 0
+    mek dy = 0
+    bombo game.held("left") or game.held("a") { dx -= 1 }
+    bombo game.held("right") or game.held("d") { dx += 1 }
+    bombo game.held("up") or game.held("w") { dy -= 1 }
+    bombo game.held("down") or game.held("s") { dy += 1 }
+    player.x = clamp(player.x + dx * speed * dt, 22, W - 22)
+    player.y = clamp(player.y + dy * speed * dt, 60, H - 30)
+
+    player.cool -= dt
+    player.inv = max(0, player.inv - dt)
+    player.triple = max(0, player.triple - dt)
+    player.shield = max(0, player.shield - dt)
+
+    bombo game.held("space") an player.cool <= 0 {
+        player.cool = 0.14
+        pon(shots, {x: player.x, y: player.y - 24, vx: 0})
+        bombo player.triple > 0 {
+            pon(shots, {x: player.x - 12, y: player.y - 10, vx: -110})
+            pon(shots, {x: player.x + 12, y: player.y - 10, vx: 110})
+        }
+        game.play(sfx.shoot, 0.6)
+    }
+}
+
+wuk collectPowerup(p) {
+    p.dead = yeh mon
+    game.play(sfx.powerup)
+    bombo p.kind == "triple" {
+        player.triple = 10
+        popup(p.x, p.y, "TRIPLE SHOT")
+    } bomboclaat p.kind == "shield" {
+        player.shield = 12
+        popup(p.x, p.y, "SHIELD")
+    } bloodclaat {
+        big up player.lives
+        popup(p.x, p.y, "1UP")
+    }
+}
+
+# ---------- the main update ----------
+
+wuk updateEffects(dt) {
+    fi s inna sparks {
+        s.x += s.vx * dt
+        s.y += s.vy * dt
+        s.vx = s.vx * 0.95
+        s.vy = s.vy * 0.95
+        s.life -= dt
+        bombo s.life <= 0 { s.dead = yeh mon }
+    }
+    sparks = alive(sparks)
+
+    fi b inna blasts {
+        b.t += dt
+        bombo b.t >= 0.42 { b.dead = yeh mon }
+    }
+    blasts = alive(blasts)
+
+    fi p inna popups {
+        p.y -= 40 * dt
+        p.life -= dt
+        bombo p.life <= 0 { p.dead = yeh mon }
+    }
+    popups = alive(popups)
+}
+
+wuk update(dt) {
+    t += dt
+    shake = max(0, shake - dt * 2)
+    mek speed = 30
+    bombo mode == "play" {
+        speed = 60
+    }
+    scroll += speed * dt
+    updateEffects(dt)
+
+    bombo mode == "title" {
+        bombo game.tapped("space") or game.tapped("enter") {
+            newGame()
+        }
+        bombo game.tapped("escape") {
+            game.quit()
+        }
+        sen back
+    }
+
+    bombo mode == "pause" {
+        bombo game.tapped("p") or game.tapped("escape") {
+            mode = "play"
+        }
+        sen back
+    }
+
+    bombo mode == "over" {
+        overTimer += dt
+        bombo overTimer > 1 an (game.tapped("space") or game.tapped("enter")) {
+            newGame()
+        }
+        bombo game.tapped("escape") {
+            mode = "title"
+        }
+    }
+
+    bombo mode == "play" {
+        bombo game.tapped("p") or game.tapped("escape") {
+            mode = "pause"
+            sen back
+        }
+        updatePlayer(dt)
+        banner = max(0, banner - dt)
+
+        # spawn the next enemy in the wave
+        spawnTimer -= dt
+        bombo spawnTimer <= 0 an howmuch(spawnQueue) > 0 {
+            spawn(dash(spawnQueue, 0))
+            spawnTimer = max(0.25, 0.9 - wave * 0.05)
+        }
+        bombo howmuch(spawnQueue) == 0 an howmuch(enemies) == 0 {
+            nextWave()
+        }
+    }
+
+    # player shots
+    fi s inna shots {
+        s.x += s.vx * dt
+        s.y -= 640 * dt
+        bombo s.y < -20 { s.dead = yeh mon }
+        fi e inna enemies {
+            bombo nuh s.dead an nuh e.dead an near(s.x, s.y, e.x, e.y, e.r + 4) {
+                s.dead = yeh mon
+                e.hp -= 1
+                e.flash = 0.08
+                burst(s.x, s.y, "#fff3b0", 4, 120)
+                bombo e.hp <= 0 {
+                    killEnemy(e)
+                } bloodclaat {
+                    game.play(sfx.hit, 0.7)
+                }
+            }
+        }
+    }
+    shots = alive(shots)
+
+    # enemies
+    mek playing = mode == "play"
+    fi e inna enemies {
+        updateEnemy(e, dt)
+        bombo playing an nuh e.dead an near(e.x, e.y, player.x, player.y, e.r + 12) {
+            bombo e.kind != "boss" {
+                e.hp = 0
+                killEnemy(e)
+            }
+            hurtPlayer()
+        }
+    }
+    enemies = alive(enemies)
+
+    # enemy shots
+    fi b inna enemyShots {
+        b.x += b.vx * dt
+        b.y += b.vy * dt
+        bombo b.y > H + 10 or b.y < -10 or b.x < -10 or b.x > W + 10 {
+            b.dead = yeh mon
+        }
+        bombo playing an near(b.x, b.y, player.x, player.y, 12) {
+            b.dead = yeh mon
+            hurtPlayer()
+        }
+    }
+    enemyShots = alive(enemyShots)
+
+    # power-ups
+    fi p inna powerups {
+        p.y += 90 * dt
+        bombo p.y > H + 20 { p.dead = yeh mon }
+        bombo playing an nuh p.dead an near(p.x, p.y, player.x, player.y, 28) {
+            collectPowerup(p)
+        }
+    }
+    powerups = alive(powerups)
+}
+
+# ---------- drawing ----------
+
+# Draw a full-screen layer that scrolls down and wraps around.
+wuk drawLayer(image, offset) {
+    mek y = offset % H
+    game.draw(image, 0, y)
+    game.draw(image, 0, y - H)
+}
+
+wuk drawShip(x, y) {
+    put(art.flames[floor(t * 15) % 2], x, y + 26)
+    put(art.ship, x, y)
+}
+
+wuk drawEnemy(e) {
+    mek opts = {center: yeh mon}
+    bombo e.kind == "dart" {
+        opts.angle = atan2(e.vy, e.vx) - pi / 2
+    }
+    bombo e.flash > 0 {
+        opts.scale = 1.12
+    }
+    game.draw(e.image, e.x, e.y, opts)
+}
+
+wuk drawWorld() {
+    drawLayer(art.background, scroll * 0.2)
+    drawLayer(art.starsFar, scroll * 0.6)
+    drawLayer(art.starsNear, scroll * 1.5)
+
+    bombo shake > 0 {
+        game.camera(rand(-1, 1) * shake * 10, rand(-1, 1) * shake * 10)
+    }
+
+    fi p inna powerups {
+        game.draw(art.power[p.kind], p.x, p.y, {center: yeh mon, scale: 1 + sin(t * 8) * 0.08})
+    }
+
+    fi e inna enemies {
+        drawEnemy(e)
+    }
+
+    fi s inna shots {
+        put(art.bullet, s.x, s.y)
+    }
+
+    fi b inna enemyShots {
+        put(art.enemyBullet, b.x, b.y)
+    }
+
+    bombo mode == "play" or mode == "pause" {
+        mek blink = player.inv > 0 an floor(t * 12) % 2 == 0
+        bombo nuh blink {
+            drawShip(player.x, player.y)
+        }
+        bombo player.shield > 0 {
+            game.draw(art.shield, player.x, player.y, {center: yeh mon, alpha: 0.75 + sin(t * 10) * 0.15})
+        }
+    }
+
+    fi b inna blasts {
+        mek frame = min(5, floor(b.t / 0.07))
+        game.draw(art.explosion[frame], b.x, b.y, {center: yeh mon, scale: b.size})
+    }
+
+    fi s inna sparks {
+        game.draw(art.spark, s.x, s.y, {center: yeh mon, tint: s.colour, alpha: s.life / s.max})
+    }
+
+    fi p inna popups {
+        game.text(p.words, p.x, p.y, 14, "white", "center")
+    }
+}
+
+wuk drawHud() {
+    game.text("SCORE " + score, 14, 10, 18, "white")
+    game.text("BEST " + hiscore, W - 14, 10, 18, "#9fb3d9", "right")
+    bombo player.lives > 0 {
+        fi i from 1 tuh min(player.lives, 8) {
+            game.draw(art.ship, i * 26 - 8, H - 40, {scale: 0.5, smooth: yeh mon})
+        }
+    }
+    mek y = H - 34
+    bombo player.triple > 0 {
+        game.text("TRIPLE " + ceil(player.triple), W - 14, y, 14, "#7dff8a", "right")
+        y -= 18
+    }
+    bombo player.shield > 0 {
+        game.text("SHIELD " + ceil(player.shield), W - 14, y, 14, "#4fc3ff", "right")
+    }
+    fi e inna enemies {
+        bombo e.kind == "boss" {
+            game.rect(60, 40, W - 120, 8, "#3a1a10")
+            game.rect(60, 40, (W - 120) * e.hp / e.maxhp, 8, "#ff7a2f")
+            game.text("MOTHERSHIP", W / 2, 50, 12, "#ffb38a", "center")
+        }
+    }
+    bombo banner > 0 {
+        mek words = "WAVE " + wave
+        bombo wave % 5 == 0 {
+            words = "WAVE " + wave + "  -  MOTHERSHIP"
+        }
+        game.text(words, W / 2, H / 2 - 40, 30, "#ffd23f", "center")
+    }
+}
+
+wuk draw() {
+    drawWorld()
+    game.camera(0, 0)
+
+    bombo mode == "title" {
+        mek bob = sin(t * 2) * 6
+        game.text("STARFALL", W / 2, 180 + bob, 64, "#ffd23f", "center")
+        game.text("a space shooter written in Bombo", W / 2, 260, 16, "#9fb3d9", "center")
+        mek y = 380 + sin(t * 3) * 8
+        game.draw(art.flames[floor(t * 15) % 2], W / 2, y + 52, {center: yeh mon, scale: 2})
+        game.draw(art.ship, W / 2, y, {center: yeh mon, scale: 2})
+        bombo floor(t * 2) % 2 == 0 {
+            game.text("PRESS SPACE TO START", W / 2, 480, 22, "white", "center")
+        }
+        game.text("ARROWS / WASD  move", W / 2, 560, 15, "#9fb3d9", "center")
+        game.text("SPACE  fire      P  pause", W / 2, 584, 15, "#9fb3d9", "center")
+        game.text("BEST " + hiscore, W / 2, 640, 18, "#ffd23f", "center")
+        sen back
+    }
+
+    drawHud()
+
+    bombo mode == "pause" {
+        game.rect(0, 0, W, H, game.rgb(0, 0, 0, 150))
+        game.text("PAUSED", W / 2, H / 2 - 30, 42, "white", "center")
+        game.text("press P to keep going", W / 2, H / 2 + 30, 16, "#9fb3d9", "center")
+    }
+
+    bombo mode == "over" {
+        game.rect(0, 0, W, H, game.rgb(0, 0, 0, 120))
+        game.text("GAME OVER", W / 2, 240, 52, "#ff4d5e", "center")
+        game.text("SCORE " + score, W / 2, 320, 26, "white", "center")
+        game.text("reached wave " + wave, W / 2, 360, 16, "#9fb3d9", "center")
+        bombo newBest {
+            game.text("NEW BEST!", W / 2, 400, 22, "#ffd23f", "center")
+        }
+        bombo overTimer > 1 {
+            game.text("SPACE to play again   ESC for menu", W / 2, 480, 16, "white", "center")
+        }
+    }
+}
+
+game.run(update, draw)
